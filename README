@@ -1,0 +1,7 @@
+Note: This implementation can only be compiled for and run on CPUs that support the AVX512 instruction set.
+
+This repository contains our implementation of the Labrador proof system together with implementations of the Chihuahua, Dachshund and Greyhound front ends.
+
+To compile a test program for Greyhound and Labrador, run `make test_greyhound'. This produces the executable test_greyhound, which tests and benchmarks the Greyhound front end followed by several iterations of Labrador. More concretely, the program generates a uniformly random polynomial of length 2^26, commits to it, produces an evaluation proof, and checks that the proof verifies correctly.
+
+To compile a shared library containing all the dogs, run `make libdogs.so'. See the header files for the api.
