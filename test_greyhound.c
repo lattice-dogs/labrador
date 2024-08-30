@@ -101,7 +101,7 @@ int main(void) {
   int ret;
   size_t len;
 
-  len = 1 << 20;
+  len = 1 << 19;
 
   ret = test_polcom(len);
   if(ret) goto end;

@@ -22,11 +22,11 @@ typedef struct {
 __attribute__((visibility("default")))
 void free_composite(composite *proof);
 
-double composite_prove_principle(composite *proof, const prncplstmnt *st, const witness *wt);
+int composite_prove_principle(composite *proof, const prncplstmnt *st, const witness *wt);
 #define composite_prove_simple NAMESPACE(composite_prove_simple)
 __attribute__((visibility("default")))
-double composite_prove_simple(composite *proof, commitment *com, const smplstmnt *st, const witness *wt);
-double composite_prove_polcom(composite *proof, polcomprf *ppi, polcomctx *ctx, uint32_t x, uint32_t y);
+int composite_prove_simple(composite *proof, commitment *com, const smplstmnt *st, const witness *wt);
+int composite_prove_polcom(composite *proof, polcomprf *ppi, polcomctx *ctx, uint32_t x, uint32_t y);
 
 int composite_verify_principle(const composite *proof, const prncplstmnt *st);
 #define composite_verify_simple NAMESPACE(composite_verify_simple)

@@ -9,11 +9,14 @@
 #include "poly.h"
 #include "polx.h"
 #include "polz.h"
+#include "jlproj.h"
 #include "labrador.h"
 #include "chihuahua.h"
 #include "dachshund.h"
 
-void init_smplstmnt_raw(smplstmnt *st, size_t r, const size_t n[r], const uint64_t betasq[r], size_t k) {
+#define TMPF 4
+
+int init_smplstmnt_raw(smplstmnt *st, size_t r, const size_t n[r], const uint64_t betasq[r], size_t k) {
   size_t i;
   void *buf;
 
@@ -33,6 +36,7 @@ void init_smplstmnt_raw(smplstmnt *st, size_t r, const size_t n[r], const uint64
 
   st->u0 = st->alpha = NULL;
   memset(st->h,0,16);
+  return 0;
 }
 
 int set_smplstmnt_lincnst_raw(smplstmnt *st, size_t i, size_t nz, const size_t idx[nz],
@@ -40,22 +44,30 @@ int set_smplstmnt_lincnst_raw(smplstmnt *st, size_t i, size_t nz, const size_t i
 {
   size_t j,k;
 
-  if(i >= st->k)
+  if(i >= st->k) {
+    fprintf(stderr,"ERROR in set_smplstmnt_lincnst_raw(): Constraint %zu does not exist\n",i);
     return 1;
+  }
 
   sparsecnst *cnst = &st->cnst[i];
-  if(cnst->idx)
+  if(cnst->idx) {
+    fprintf(stderr,"ERROR in set_smplstmnt_lincnst_raw(): Constraint has already been set\n");
     return 2;
+  }
   for(j=0;j<nz;j++) {
     k = idx[j];
-    if(k >= st->r)
+    if(k >= st->r) {
+      fprintf(stderr,"ERROR in set_smplstmnt_lincnst_raw(): Witness vector %zu does not exist\n",k);
       return 3;
-    if(n[j]*deg != st->n[k])
+    }
+    if(n[j]*deg != st->n[k]) {
+      fprintf(stderr,"ERROR in set_smplstmnt_lincnst_raw(): Mismatch in witness vector length\n");
       return 4;
+    }
   }
 
   init_sparsecnst_raw(cnst,st->r,nz,idx,n,deg,0,b == NULL);
-  set_sparsecnst_raw(cnst,st->h,nz,idx,n,deg,phi,b);
+  (void)set_sparsecnst_raw(cnst,st->h,nz,idx,n,deg,phi,b);  // errors can not happen
   return 0;
 }
 
@@ -122,9 +134,11 @@ void print_smplstmnt_pp(const smplstmnt *st) {
   printf("\n\n");
 }
 
-static void expand_witness(witness *ewt, const smplstmnt *ist, const witness *iwt) {
+static int expand_witness(witness *ewt, const smplstmnt *ist, const witness *iwt) {
+  int ret;
   size_t i,k;
   const size_t r = iwt->r;
+  uint64_t normsq = 0;
   void *buf;
 
   ewt->r = r+1;
@@ -138,6 +152,7 @@ static void expand_witness(witness *ewt, const smplstmnt *ist, const witness *iw
     ewt->normsq[i] = iwt->normsq[i];
     ewt->s[i] = iwt->s[i];
     if(ist->betasq[i]) k += 1;
+    normsq += ewt->normsq[i];
   }
 
   buf = _aligned_alloc(64,k*sizeof(poly));
@@ -152,20 +167,36 @@ static void expand_witness(witness *ewt, const smplstmnt *ist, const witness *iw
 
   ewt->n[r] = k;
   ewt->normsq[r] = polyvec_sprodz(ewt->s[r],ewt->s[r],k);
-/*
-  uint64_t normsq = 0;
-  for(i=0;i<r+1;i++)
-    normsq += ewt->normsq[i];
-  if(normsq >= (uint64_t)1 << LOGQ)
-    printf("ERROR: Total witness norm too big to support exact l2-norm proofs\n");
-*/
+  normsq += ewt->normsq[i];
+
+  normsq *= SLACK*SLACK;
+  for(i=0;i<r+1;i++) {
+    if((i == r || !ist->betasq[i]) && normsq + sqrt(normsq*ewt->n[i]*N) > ldexp(1,LOGQ)) {
+      fprintf(stderr,"ERROR: Total witness norm too big to support binary proof for witness vector %zu\n",i);
+      ret = 1;
+      goto err;
+    }
+    if((i < r && ist->betasq[i]) && normsq > ((uint64_t)1 << (LOGQ-1)) - QOFF) {
+      fprintf(stderr,"ERROR: Total witness norm too big to support exact l2-norm proof for witness vector %zu\n",i);
+      ret = 2;
+      goto err;
+    }
+  }
+
+  return 0;
+
+err:
+  free(ewt->s[r]);
+  free(ewt->n);
+  ewt->n = NULL;
+  return ret;
 }
 
 static void init_gadget(polx *gdgt) {
   size_t i;
   int64_t coeffs[N];
 
-  for(i=0;i<30;i++)  // Maximum betasq = 2^30
+  for(i=0;i<LOGQ-1;i++)  // Maximum betasq = 2^(LOGQ-1)-1
     coeffs[i] = (int64_t)1 << i;
   while(i<N)
     coeffs[i++] = 0;
@@ -221,11 +252,11 @@ static void simple_commit(statement *ost, witness *owt, proof *pi, commitment *c
     polz_frompolx(tmp,&sx[s1][i]);
     polz_setcoeff_fromint64(tmp,0,0);
     polz_center(tmp);
-    polz_decompose_topolx(&sx[s1][i],tmp,r,3,10);
+    polz_decompose_topolx(&sx[s1][i],tmp,r,TMPF,10);
   }
 
   polxvec_setzero(&sx[s0][k],(s1-s0)*ost->n - k);
-  polxvec_setzero(&sx[s1][3*r],(s2-s1)*ost->n - 3*r);
+  polxvec_setzero(&sx[s1][TMPF*r],(s2-s1)*ost->n - TMPF*r);
   polxvec_setzero(&sx[s2][k],(s3-s2)*ost->n - k);
 
   polxvec_setzero(ost->u1,com->kappa1);
@@ -269,6 +300,19 @@ static void reduce_simple_commit(statement *ost, const proof *pi, const commitme
   //FIXME: check alpha
   polzvec_bitpack(&hashbuf[16],pi->u1,pi->cpp->u1len);
   shake128(ost->h,16,hashbuf,16+pi->cpp->u1len*N*QBYTES);
+}
+
+static int64_t cmodq(int64_t a) {  // TODO: merge with impl from polx.c
+  int64_t t;
+  const int64_t mask = ((int64_t)1 << LOGQ) - 1;
+  const int64_t q = ((int64_t)1 << LOGQ) - QOFF;
+
+  t = a >> LOGQ;
+  a &= mask;
+  a += t*QOFF;
+  t = q/2 - a;
+  a -= (t >> 63)&q;
+  return a;
 }
 
 static void simple_collaps(constraint *cnst, statement *ost,
@@ -317,11 +361,12 @@ static void simple_collaps(constraint *cnst, statement *ost,
     s = 0;
     for(j=0;j<QBYTES;j++)
       s |= (int64_t)hashbuf[32+i*QBYTES+j] << 8*j;
-    s &= (1LL << LOGQ) - 1;
+    s &= ((int64_t)1 << LOGQ) - 1;
 
-    for(j=0;j<3;j++) {
-      polx_monomial(tmp,s << 10*j,0);
+    for(j=0;j<TMPF;j++) {
+      polx_monomial(tmp,s,0);
       polx_add(&phi[s1][j*r+i],&phi[s1][j*r+i],tmp);
+      s = cmodq(s << 10);
     }
   }
 }
@@ -368,53 +413,81 @@ static void simple_aggregate(statement *ost, const proof *pi, const commitment *
     }
 
     polx_sub(&phi[s1][i],&phi[s1][i],&com->alpha[i]);
-    for(j=1;j<3;j++)
+    for(j=1;j<TMPF;j++)
       polx_scale_add(&phi[s1][j*r+i],&com->alpha[i],-(int64_t)(1 << 10*j));
   }
 }
 
-void simple_prove(statement *ost, witness *owt, proof *pi, commitment *com,
+int simple_prove(statement *ost, witness *owt, proof *pi, commitment *com,
                   const smplstmnt *ist, const witness *iwt, int tail)
 {
+  int ret;
   size_t i;
   witness ewt[1];
-  constraint cnst[1];
+  constraint cnst[1] = {};
+  void *buf = NULL;
 
-  expand_witness(ewt,ist,iwt);
-  init_proof(pi,ewt,2,tail);
+  ret = expand_witness(ewt,ist,iwt);
+  if(ret)
+    return ret;  // norm too big for shortness proofs (1/2)
+  ret = init_proof(pi,ewt,2,tail);
+  if(ret) {  // commitments not secure (1/2)
+    ret += 10;
+    goto err;
+  }
   init_commitment(com,pi->cpp,ewt);
   init_statement(ost,pi,ist->h);
   init_witness(owt,ost);
   printf("Predicted witness norm: %.2f\n\n",sqrt(pi->normsq));
 
-  polx (*sx)[ost->n] = _aligned_alloc(64,ost->r*ost->n*sizeof(polx));
-  simple_commit(ost,owt,pi,com,sx,ist,ewt);
+  {
+    const size_t s1 = pi->nu[ist->r];
+    buf = _aligned_alloc(64,ost->r*ost->n*sizeof(polx)+s1*ost->n*256*N/8);
+    polx (*sx)[ost->n] = (polx(*)[ost->n])buf;
+    uint8_t (*jlmat)[ost->n][256*N/8] = (uint8_t(*)[ost->n][256*N/8])sx[ost->r];
+    simple_commit(ost,owt,pi,com,sx,ist,ewt);
+    ret = project(ost,pi,jlmat,ewt);
+    if(ret) {
+      ret += 20;
+      goto err;
+    }
 
-  const size_t s1 = pi->nu[ist->r];
-  uint8_t (*jlmat)[ost->n][256*N/8] = _aligned_alloc(64,s1*ost->n*256*N/8);
-  project(ost,pi,jlmat,ewt);
+    free(ewt->s[ewt->r-1]);
+    free(ewt->n);
 
-  free(ewt->s[ewt->r-1]);
-  free(ewt->n);
+    init_constraint_raw(cnst,ost->r,ost->n,1,0);
+    for(i=0;i<LIFTS;i++) {
+      collaps_jlproj_raw(cnst,s1,ost->n,ost->h,pi->p,jlmat);
+      polxvec_setzero(&cnst->phi[s1*ost->n],(ost->r-s1)*ost->n);
+      collaps_sparsecnst(cnst,ost,pi,ist->cnst,ist->k);
+      simple_collaps(cnst,ost,pi,com,ist);
+      lift_aggregate_zqcnst(ost,pi,i,cnst,sx);
+    }
+    free_constraint(cnst);
 
-  init_constraint_raw(cnst,ost->r,ost->n,1,0);
-  for(i=0;i<LIFTS;i++) {
-    collaps_jlproj_raw(cnst,s1,ost->n,ost->h,pi->p,jlmat);
-    polxvec_setzero(&cnst->phi[s1*ost->n],(ost->r-s1)*ost->n);
-    collaps_sparsecnst(cnst,ost,pi,ist->cnst,ist->k);
-    simple_collaps(cnst,ost,pi,com,ist);
-    lift_aggregate_zqcnst(ost,pi,i,cnst,sx);
+    simple_aggregate(ost,pi,com,ist);
+    aggregate_sparsecnst(ost,pi,ist->cnst,ist->k);
+    amortize(ost,owt,pi,sx);
+    free(buf);
+    buf = NULL;
   }
-  free(jlmat);
-  free_constraint(cnst);
-
-  simple_aggregate(ost,pi,com,ist);
-  aggregate_sparsecnst(ost,pi,ist->cnst,ist->k);
-  amortize(ost,owt,pi,sx);
-  free(sx);
 
   polx_refresh(ost->cnst->b);
   polxvec_refresh(ost->cnst->phi,ost->n);
+  return 0;
+
+err:
+  if(ewt->n) {
+    free(ewt->s[ewt->r-1]);
+    free(ewt->n);
+  }
+  free_proof(pi);
+  free_commitment(com);
+  free_statement(ost);
+  free_witness(owt);
+  free(buf);
+  free_constraint(cnst);
+  return ret;
 }
 
 int simple_reduce(statement *ost, const proof *pi, const commitment *com, const smplstmnt *ist) {
@@ -422,13 +495,13 @@ int simple_reduce(statement *ost, const proof *pi, const commitment *com, const 
   int ret;
   uint64_t betasq = 0;
   uint8_t (*jlmat)[ost->n][256*N/8];
-  constraint cnst[1];
+  constraint cnst[1] = {};
 
   init_statement(ost,pi,ist->h);
   for(i=0;i<ist->r;i++) {
     betasq += ist->betasq[i];
     if(ist->betasq[i])
-      betasq += 30;
+      betasq += LOGQ-1;
   }
 
   const size_t s1 = pi->nu[ist->r];
@@ -436,7 +509,7 @@ int simple_reduce(statement *ost, const proof *pi, const commitment *com, const 
 
   reduce_simple_commit(ost,pi,com);
   ret = reduce_project(ost,jlmat,pi,ist->r+1,betasq);
-  if(ret) goto err;
+  if(ret) goto err;  // projection too long
 
   init_constraint(cnst,ost);
   for(i=0;i<LIFTS;i++) {
@@ -444,11 +517,7 @@ int simple_reduce(statement *ost, const proof *pi, const commitment *com, const 
     polxvec_setzero(&cnst->phi[s1*ost->n],(ost->r-s1)*ost->n);
     collaps_sparsecnst(cnst,ost,pi,ist->cnst,ist->k);
     simple_collaps(cnst,ost,pi,com,ist);
-    ret = reduce_lift_aggregate_zqcnst(ost,pi,i,cnst);
-    if(ret) {
-      ret = 2+i;
-      goto err;
-    }
+    reduce_lift_aggregate_zqcnst(ost,pi,i,cnst);
   }
   free_constraint(cnst);
   free(jlmat);
@@ -457,8 +526,8 @@ int simple_reduce(statement *ost, const proof *pi, const commitment *com, const 
   simple_aggregate(ost,pi,com,ist);
   aggregate_sparsecnst(ost,pi,ist->cnst,ist->k);
   ret = reduce_amortize(ost,pi);
-  if(ret) {
-    ret = 8;
+  if(ret) {  // commitments not secure (1/2)
+    ret += 10;
     goto err;
   }
 
@@ -468,8 +537,8 @@ int simple_reduce(statement *ost, const proof *pi, const commitment *com, const 
 
 err:
   free_statement(ost);
-  free_constraint(cnst);
   free(jlmat);
+  free_constraint(cnst);
   return ret;
 }
 
@@ -478,21 +547,30 @@ int simple_verify(const smplstmnt *st, const witness *wt) {
   size_t i;
   polx *sx[wt->r];
 
-  if(wt->r != st->r)
+  if(wt->r != st->r) {
+    fprintf(stderr,"ERROR in simple_verify(): Mismatch in witness multiplicity\n");
     return 1;
+  }
   for(i=0;i<wt->r;i++) {
-    if(wt->n[i] != st->n[i])
+    if(wt->n[i] != st->n[i]) {
+      fprintf(stderr,"ERROR in simple_verify(): Mismatch in length of witness vector %zu\n",i);
       return 2;
-    if(!st->betasq[i] && !polyvec_isbinary(wt->s[i],wt->n[i]))
+    }
+    if(!st->betasq[i] && !polyvec_isbinary(wt->s[i],wt->n[i])) {
+      fprintf(stderr,"ERROR in simple_verify(): Vector %zu is not binary\n",i);
       return 3;
-    if(st->betasq[i] && wt->normsq[i] > st->betasq[i])
+    }
+    if(st->betasq[i] && wt->normsq[i] > st->betasq[i]) {
+      fprintf(stderr,"ERROR in simple_verify(): l2-Norm of vector %zu larger than bound\n",i);
       return 4;
+    }
   }
 
   *sx = NULL;
   for(i=0;i<st->k;i++) {
     ret = !sparsecnst_check(&st->cnst[i],sx,wt);
     if(ret) {
+      fprintf(stderr,"ERROR in simple_verify(): Sparse dot-product constraint %zu does not hold\n",i);
       ret = 10+i;
       goto end;
     }

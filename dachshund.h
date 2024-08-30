@@ -34,7 +34,7 @@ typedef struct {
  * consisting of k linear constraints (rows of constraint matrix) */
 #define init_smplstmnt_raw NAMESPACE(init_smplstmnt_raw)
 __attribute__((visibility("default")))
-void init_smplstmnt_raw(smplstmnt *st, size_t r, const size_t n[r], const uint64_t betasq[r], size_t k);
+int init_smplstmnt_raw(smplstmnt *st, size_t r, const size_t n[r], const uint64_t betasq[r], size_t k);
 /* set j-th linear constraint (j <= k) where the nz sub-vectors of indices idx[nz] (0 <= idx[nz] < r) are non-zero;
  * phi is the concatenation of the non-zero sub vectors (of length \sum_{i=0}^{nz-1} n[i]) */
 #define set_smplstmnt_lincnst_raw NAMESPACE(set_smplstmnt_lincnst_raw)
@@ -49,7 +49,7 @@ void free_smplstmnt(smplstmnt *st);
 __attribute__((visibility("default")))
 void free_commitment(commitment *com);
 
-void simple_prove(statement *ost, witness *owt, proof *pi, commitment *com,
+int simple_prove(statement *ost, witness *owt, proof *pi, commitment *com,
                   const smplstmnt *ist, const witness *iwt, int tail);
 int simple_reduce(statement *ost, const proof *pi, const commitment *com, const smplstmnt *ist);
 #define simple_verify NAMESPACE(simple_verify)

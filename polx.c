@@ -4,12 +4,16 @@
 #include "poly.h"
 #include "polz.h"
 
-static int64_t modq(int64_t a) {
+static int64_t cmodq(int64_t a) {
   int64_t t;
+  const int64_t mask = ((int64_t)1 << LOGQ) - 1;
+  const int64_t q = ((int64_t)1 << LOGQ) - QOFF;
 
   t = a >> LOGQ;
-  a &= ((int64_t)1 << LOGQ) - 1;
+  a &= mask;
   a += t*QOFF;
+  t = q/2 - a;
+  a -= (t >> 63)&q;
   return a;
 }
 
@@ -24,7 +28,6 @@ void polx_getcoeff(zz *r, const polx *a, int k) {
   polz z;
 
   polz_frompolx(&z,a);
-  polz_center(&z);
   polz_getcoeff(r,&z,k);
 }
 
@@ -73,7 +76,7 @@ int polx_iszero_constcoeff(const polx *a) {
 void polx_monomial(polx *r, int64_t v, int k) {
   size_t i;
 
-  v = modq(v);
+  v = cmodq(v);
   for(i=0;i<K;i++)
     poly_monomial_ntt(&r->vec[i],v % primes[i].p,k,&primes[i]);
 }
@@ -318,7 +321,7 @@ void polxvec_sprod_add(polx *r, const polx *a, const polx *b, size_t len) {
 void polx_scale(polx *r, const polx *a, int64_t s) {
   size_t i;
 
-  s = modq(s);
+  s = cmodq(s);
   s <<= 16;
   for(i=0;i<K;i++)
     poly_scale(&r->vec[i],&a->vec[i],s % primes[i].p,&primes[i]);
@@ -327,7 +330,7 @@ void polx_scale(polx *r, const polx *a, int64_t s) {
 void polx_scale_frompoly(polx *r, const poly *a, int64_t s) {
   size_t i;
 
-  s = modq(s);
+  s = cmodq(s);
   for(i=0;i<K;i++)
     poly_scale(&r->vec[i],a,s*primes[i].s % primes[i].p,&primes[i]);
 
@@ -337,7 +340,7 @@ void polx_scale_frompoly(polx *r, const poly *a, int64_t s) {
 void polxvec_scale(polx *r, const polx *a, size_t len, int64_t s) {
   size_t i;
 
-  s = modq(s);
+  s = cmodq(s);
   s <<= 16;
   for(i=0;i<K;i++)
     polyvec_scale(&r->vec[i],&a->vec[i],len,K,s % primes[i].p,&primes[i]);
@@ -346,7 +349,7 @@ void polxvec_scale(polx *r, const polx *a, size_t len, int64_t s) {
 void polxvec_scale_frompolyvec(polx *r, const poly *a, size_t len, int64_t s) {
   size_t i;
 
-  s = modq(s);
+  s = cmodq(s);
   for(i=0;i<K;i++)
     polyvec_scale_widening(&r->vec[i],a,len,K,s*primes[i].s % primes[i].p,&primes[i]);
 
@@ -356,7 +359,7 @@ void polxvec_scale_frompolyvec(polx *r, const poly *a, size_t len, int64_t s) {
 void polx_scale_add(polx *r, const polx *a, int64_t s) {
   size_t i;
 
-  s = modq(s);
+  s = cmodq(s);
   s <<= 16;
   for(i=0;i<K;i++)
     poly_scale_add(&r->vec[i],&a->vec[i],s % primes[i].p,&primes[i]);
@@ -367,7 +370,7 @@ void polx_scale_add(polx *r, const polx *a, int64_t s) {
 void polxvec_scale_add(polx *r, const polx *a, size_t len, int64_t s) {
   size_t i;
 
-  s = modq(s);
+  s = cmodq(s);
   s <<= 16;
   for(i=0;i<K;i++)
     polyvec_scale_add(&r->vec[i],&a->vec[i],len,K,s % primes[i].p,&primes[i]);

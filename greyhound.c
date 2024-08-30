@@ -16,34 +16,47 @@
 
 //#define STREAM_WITNESS
 
-static void init_polcomctx(polcomctx *ctx, size_t len) {
+static int init_polcomctx(polcomctx *ctx, size_t len) {
   double varz;
   comparams *cpp = ctx->cpp;
 
-  cpp->kappa  = 18;
-  cpp->kappa1 =  7;
-
-  cpp->b = 6;
-  cpp->f = 5;
-
-  /* m*n = len
-   * minimize 2*m*f + (kappa+1)*fu*n, we use f as an approximation for fu */
   ctx->len = len;
-  ctx->m = round(sqrt(len*(cpp->kappa+1)/2.0));
-  ctx->n = ceil((double)len/ctx->m);
 
-  varz = exp2(2*cpp->b)/12*ctx->n*(TAU1+4*TAU2);
-  cpp->bu = round(0.25*log2(12*varz));  // z (decomposed)
-  //cpp->bu = round(0.5*cpp->b + 0.25*log2(ctx->n) + 0.25*log2(TAU1+4*TAU2)));
-  cpp->fu = round((double)LOGQ/cpp->bu);
+  for(cpp->f=2;cpp->f<=8;cpp->f++) {
+    cpp->b = (LOGQ+cpp->f/2)/cpp->f;
+    for(cpp->kappa=1;cpp->kappa<=32;cpp->kappa++) {
+      /* m*n = len
+       * minimize 2*m*f + (kappa+1)*fu*n, we use f as an approximation for fu */
+      ctx->m = round(sqrt(len*(cpp->kappa+1)/2.0));
+      ctx->n = ceil((double)len/ctx->m);
 
-  ctx->normsq  = (exp2(2*cpp->bu)/12 + varz/exp2(2*cpp->bu))*ctx->m*cpp->f;
-  ctx->normsq += (exp2(2*cpp->bu)*(cpp->fu - 1) + exp2(2*(LOGQ-(cpp->fu - 1)*cpp->bu)))/12*(cpp->kappa+1)*ctx->n;
-  ctx->normsq *= N;
-  if(!sis_secure(cpp->kappa,6*T*SLACK*exp2(cpp->bu)*sqrt(ctx->normsq)))
-    fprintf(stderr,"ERROR: Inner commitments not secure!\n");
-  if(!sis_secure(cpp->kappa1,2*SLACK*sqrt(ctx->normsq)))
-    fprintf(stderr,"ERROR: Outer commitments not secure!\n");
+      varz = exp2(2*cpp->b)/12*ctx->n*(TAU1+4*TAU2);
+      cpp->bu = round(0.25*log2(12*varz));  // z (decomposed)
+      //cpp->bu = round(0.5*cpp->b + 0.25*log2(ctx->n) + 0.25*log2(TAU1+4*TAU2)));
+      cpp->fu = round((double)LOGQ/cpp->bu);
+
+      ctx->normsq  = (exp2(2*cpp->bu)/12 + varz/exp2(2*cpp->bu))*ctx->m*cpp->f;
+      ctx->normsq += (exp2(2*cpp->bu)*(cpp->fu - 1) + exp2(2*(LOGQ-(cpp->fu - 1)*cpp->bu)))/12*(cpp->kappa+1)*ctx->n;
+      ctx->normsq *= N;
+
+      if(sis_secure(cpp->kappa,6*T*SLACK*exp2(cpp->bu)*sqrt(ctx->normsq)))
+        break;
+    }
+    for(cpp->kappa1=1;cpp->kappa1<=32;cpp->kappa1++)
+      if(sis_secure(cpp->kappa1,2*SLACK*sqrt(ctx->normsq)))
+        break;
+
+    if(cpp->kappa <= 32 && cpp->kappa1 <= 32)
+      break;
+  }
+  if(cpp->kappa > 32) {
+    fprintf(stderr,"ERROR in init_polcomctx(): Cannot make inner commitments secure!\n");
+    return 1;
+  }
+  if(cpp->kappa1 > 32) {
+    fprintf(stderr,"ERROR in init_polcomctx(): Cannot make outer commitments secure!\n");
+    return 2;
+  }
 
   cpp->u1len = cpp->kappa*cpp->fu*ctx->n;
   cpp->u2len = cpp->fu*ctx->n;
@@ -56,6 +69,7 @@ static void init_polcomctx(polcomctx *ctx, size_t len) {
 #endif
   ctx->t  = _aligned_alloc(64,cpp->u1len*sizeof(poly));
   ctx->u1 = _aligned_alloc(64,cpp->kappa1*sizeof(polz));
+  return 0;
 }
 
 void free_polcomctx(polcomctx *ctx) {
@@ -116,8 +130,11 @@ double print_polcomprf_pp(const polcomprf *pi) {
   return s;
 }
 
-void polcom_commit(polcomctx *ctx, const polz *s, size_t len) {
-  init_polcomctx(ctx,len);
+int polcom_commit(polcomctx *ctx, const polz *s, size_t len) {
+  int ret;
+
+  ret = init_polcomctx(ctx,len);
+  if(ret) return ret;  // commitments not secure (1/2)
 
   const size_t m = ctx->m;
   const size_t n = ctx->n;
@@ -159,12 +176,13 @@ void polcom_commit(polcomctx *ctx, const polz *s, size_t len) {
   polzvec_frompolxvec(ctx->u1,u,cpp->kappa1);
   polzvec_bitpack(hashbuf,ctx->u1,cpp->kappa1);
   shake128(ctx->h,16,hashbuf,sizeof(hashbuf));
+  return 0;
 }
 
 #if LOGQ <= 30
 static int64_t mulmodq(int64_t a, int64_t b) {
   int64_t t,u;
-  const int64_t q = (1LL << LOGQ) - QOFF;
+  const int64_t q = ((int64_t)1 << LOGQ) - QOFF;
   const int64_t v = ((__int128)1 << (62+LOGQ))/q;
   //const __int128 off = (__int128)1 << (61+LOGQ);
 
@@ -177,7 +195,7 @@ static int64_t mulmodq(int64_t a, int64_t b) {
 static int64_t mulmodq(int64_t a, int64_t b) {
   __int128 t;
   int64_t u;
-  const int64_t q = (1LL << LOGQ) - QOFF;
+  const int64_t q = ((int64_t)1 << LOGQ) - QOFF;
   const int64_t v = ((__int128)1 << (62+LOGQ))/q;
   //const __int128 off = (__int128)1 << (122-LOGQ);
 
@@ -357,6 +375,7 @@ void polcom_eval(witness *wt, polcomprf *pi, const polcomctx *ctx, int64_t x, in
 }
 
 int polcom_reduce(prncplstmnt *st, const polcomprf *pi) {
+  int ret;
   size_t i,j;
   const comparams *cpp = pi->cpp;
   const size_t m = pi->m;
@@ -370,20 +389,25 @@ int polcom_reduce(prncplstmnt *st, const polcomprf *pi) {
   uint8_t hashbuf[24+cpp->kappa1*N*QBYTES];
   polx *buf;
 
-  st->n = NULL;
-  if(!sis_secure(cpp->kappa,6*T*SLACK*exp2(cpp->bu)*sqrt(pi->normsq)))
+  if(!sis_secure(cpp->kappa,6*T*SLACK*exp2(cpp->bu)*sqrt(pi->normsq))) {
+    fprintf(stderr,"ERROR in polcom_reduce(): Inner commitments not secure\n");
     return 1;
-  if(!sis_secure(cpp->kappa1,2*SLACK*sqrt(pi->normsq)))
+  }
+  if(!sis_secure(cpp->kappa1,2*SLACK*sqrt(pi->normsq))) {
+    fprintf(stderr,"ERROR in polcom_reduce(): Outer commitments not secure\n");
     return 2;
-
-  init_comkey(MAX(m*cpp->f,n*extlen(cpp->kappa*cpp->fu,cpp->kappa1)));
+  }
 
   /* init principal statement */
   stn[0] = m*cpp->f;
   stn[1] = stn[0];
   stn[2] = cpp->u1len;
   stn[3] = cpp->u2len;
-  init_prncplstmnt_raw(st,4,stn,pi->normsq,5,0);
+  ret = init_prncplstmnt_raw(st,4,stn,pi->normsq,5,0);
+  if(ret)  // total witness norm too big
+    return 3;
+
+  init_comkey(MAX(m*cpp->f,n*extlen(cpp->kappa*cpp->fu,cpp->kappa1)));
 
   /* challenges */
   polx *c = _aligned_alloc(64,n*sizeof(polx));

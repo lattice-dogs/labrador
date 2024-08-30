@@ -75,7 +75,7 @@ void init_comkey(size_t n);
 __attribute__((visibility("default")))
 void free_comkey(void);
 
-void init_proof(proof *pi, const witness *wt, int quadratic, int tail);
+int init_proof(proof *pi, const witness *wt, int quadratic, int tail);
 void init_constraint_raw(constraint *cnst, size_t r, size_t n, size_t deg, int quadratic);
 void init_constraint(constraint *cnst, const statement *st);
 void init_statement(statement *st, const proof *pi, const uint8_t h[16]);
@@ -106,19 +106,19 @@ size_t qugarbage_raw(polx *u, poly *g, size_t r, size_t n, const polx s[r][n],
 void commit(statement *ost, witness *owt, proof *pi, polx sx[ost->r][ost->n], const witness *iwt);
 void reduce_commit(statement *ost, const proof *pi);
 
-void project(statement *ost, proof *pi, uint8_t jlmat[][ost->n][256*N/8], const witness *iwt);
+int project(statement *ost, proof *pi, uint8_t jlmat[][ost->n][256*N/8], const witness *iwt);
 int reduce_project(statement *ost, uint8_t jlmat[][ost->n][256*N/8], const proof *pi, size_t r, uint64_t betasq);
 
 void collaps_jlproj_raw(constraint *cnst, size_t r, size_t n, uint8_t h[16], const int32_t p[256],
                        const uint8_t jlmat[r][n][256*N/8]);
 void collaps_jlproj(constraint *cnst, statement *st, const proof *pi, const uint8_t jlmat[st->r][st->n][256*N/8]);
 void lift_aggregate_zqcnst(statement *ost, proof *pi, size_t i, constraint *cnst, const polx sx[ost->r][ost->n]);
-int reduce_lift_aggregate_zqcnst(statement *ost, const proof *pi, size_t i, const constraint *cnst);
+void reduce_lift_aggregate_zqcnst(statement *ost, const proof *pi, size_t i, const constraint *cnst);
 
 void amortize(statement *ost, witness *owt, proof *pi, polx sx[ost->r][ost->n]);
 int reduce_amortize(statement *ost, const proof *pi);
 
-void prove(statement *ost, witness *owt, proof *pi, const statement *ist, const witness *iwt, int tail);
+int prove(statement *ost, witness *owt, proof *pi, const statement *ist, const witness *iwt, int tail);
 int reduce(statement *ost, const proof *pi, const statement *ist);
 int verify(const statement *st, const witness *wt);
 

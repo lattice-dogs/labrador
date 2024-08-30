@@ -417,9 +417,26 @@ static void expand_challenge(int64_t alpha[256], const uint8_t buf[256*QBYTES]) 
   int i;
   __m512i f;
 
-#if QBYTES == 4
+#if QBYTES == 3
+
+#elif QBYTES == 4
   for(i=0;i<256/8;i++) {
     f = _mm512_cvtepu32_epi64(_mm256_load_si256((__m256i*)&buf[32*i]));
+    _mm512_store_si512((__m512i*)&alpha[8*i],f);
+  }
+#elif QBYTES == 5
+  const __mmask64 mask = _cvtu64_mask64(0x1F1F1F1F1F1F1F1Full);
+  const __m512i vpermbidx = _mm512_set_epi8(-1,-1,-1,39,38,37,36,35,
+                                            -1,-1,-1,34,33,32,31,30,
+                                            -1,-1,-1,29,28,27,26,25,
+                                            -1,-1,-1,24,23,22,21,20,
+                                            -1,-1,-1,19,18,17,16,15,
+                                            -1,-1,-1,14,13,12,11,10,
+                                            -1,-1,-1, 9, 8, 7, 6, 5,
+                                            -1,-1,-1, 4, 3, 2, 1, 0);
+  for(i=0;i<256/8;i++) {
+    f = _mm512_loadu_si512((__m512i*)&buf[40*i]);
+    f = _mm512_maskz_permutexvar_epi8(mask,vpermbidx,f);
     _mm512_store_si512((__m512i*)&alpha[8*i],f);
   }
 #else
@@ -431,7 +448,7 @@ void polxvec_jlproj_collapsmat(polx *r, const uint8_t *mat, size_t len, const ui
   size_t i,j,k;
   __m512i f,g;
   const __m512i qoff = _mm512_set1_epi64(QOFF);
-  const __m512i mask = _mm512_set1_epi64((1LL << LOGQ) - 1);
+  const __m512i mask = _mm512_set1_epi64(((uint64_t)1 << LOGQ) - 1);
   const __m512i mask14 = _mm512_set1_epi64((1 << 14) - 1);
   const __mmask32 oneinfour = _cvtu32_mask32(0x11111111);
   __attribute__((aligned(64)))
@@ -511,14 +528,14 @@ int64_t jlproj_collapsproj(const int32_t p[256], const uint8_t buf[256*QBYTES]) 
   __attribute__((aligned(64)))
   int64_t alpha[256];
   __m512i f,g,h,s;
-  const __m512i mask = _mm512_set1_epi64((1LL << LOGQ)-1);
+  const __m512i mask = _mm512_set1_epi64(((uint64_t)1 << LOGQ) - 1);
   const __m512i qoff = _mm512_set1_epi64(QOFF);
 
   expand_challenge(alpha,buf);
 
   s = _mm512_setzero_si512();
   for(i=0;i<256/8;i++) {
-    f = _mm512_cvtepi32_epi64(_mm256_load_si256((__m256i*)&p[8*i]));
+    f = _mm512_cvtepi32_epi64(_mm256_loadu_si256((__m256i*)&p[8*i]));
     g = _mm512_load_si512((__m512i*)&alpha[8*i]);
     h = _mm512_mul_epi32(f,g);
     s = _mm512_add_epi64(s,h);

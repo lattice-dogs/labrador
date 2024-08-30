@@ -19,6 +19,8 @@
 size_t comkey_len = 0;
 polx *comkey = NULL;
 
+#define TMPF 4
+
 static size_t triangularidx(size_t i,size_t j,size_t r) {
   if(i>j) {  // swap
     j ^= i;
@@ -68,10 +70,10 @@ void free_comkey(void) {
   comkey_len = 0;
 }
 
-void init_proof(proof *pi, const witness *wt, int quadratic, int tail) {
+int init_proof(proof *pi, const witness *wt, int quadratic, int tail) {
   size_t i,j,k,t,u;
   size_t nn,rr;
-  int decompose;
+  int ret,decompose;
   double vars,varz,varg;
   void *buf;
   comparams *cpp = pi->cpp;
@@ -91,7 +93,7 @@ void init_proof(proof *pi, const witness *wt, int quadratic, int tail) {
       normsq[i] = wt->normsq[i];
       normsq[wt->r+1+i] = (TAU1+4*TAU2)*wt->normsq[i];
     }
-    pi->n[wt->r] = 3*wt->r;  // Zq to Rq liftings
+    pi->n[wt->r] = TMPF*wt->r;  // Zq to Rq liftings
     normsq[wt->r] = ldexp(1,20)/12*pi->n[wt->r]*N;
 
     for(i=0;i<pi->r;i++)
@@ -219,15 +221,26 @@ void init_proof(proof *pi, const witness *wt, int quadratic, int tail) {
     }
   }
 
-  if(cpp->kappa > 32)
-    fprintf(stderr,"ERROR: Inner commitments not secure!\n");
-  if(cpp->kappa1 > 32)
-    fprintf(stderr,"ERROR: Outer commitments not secure!\n");
-
   buf = _aligned_alloc(64,(cpp->u1len+cpp->u2len+LIFTS)*sizeof(polz));
   pi->u1  = (polz*)buf;
   pi->u2  = (polz*)&pi->u1[cpp->u1len];
   pi->bb  = (polz*)&pi->u2[cpp->u2len];
+
+  if(cpp->kappa > 32) {
+    fprintf(stderr,"ERROR in init_proof(): Cannot make inner commitments secure!\n");
+    ret = 1;
+    goto err;
+  }
+  else if(cpp->kappa1 > 32) {
+    fprintf(stderr,"ERROR in init_proof(): Cannot make outer commitments secure!\n");
+    ret = 2;
+    goto err;
+  }
+  return 0;
+
+err:
+  free_proof(pi);
+  return ret;
 
   /* solve m = fu*kappa*r + (fu+fg)*(r^2+r)/2 = a*r^2 + b*r = n_i/nu_i = nn/r *
    * where r = \sum_i nu_i, nn = \sum_i n_i, and n_i/nu_i = const             */
@@ -407,10 +420,14 @@ void witness_merge(witness *wt1, const witness *wt2) {
 }
 
 int set_witness_vector_raw(witness *wt, size_t i, size_t n, size_t deg, const int64_t s[n*deg*N]) {
-  if(i >= wt->r)
+  if(i >= wt->r) {
+    fprintf(stderr,"ERROR in set_witness_vector_raw(): Witness vector %zu does not exist\n",i);
     return 1;
-  if(n*deg != wt->n[i])
+  }
+  if(n*deg != wt->n[i]) {
+    fprintf(stderr,"ERROR in set_witness_vector_raw(): Mismatch of witness vector length\n");
     return 2;
+  }
 
   polyvec_fromint64vec(wt->s[i],n,deg,s);
   wt->normsq[i] = polyvec_sprodz(wt->s[i],wt->s[i],n*deg);
@@ -619,29 +636,30 @@ static uint64_t next2power(uint64_t a) {
   return a;
 }
 
-void project(statement *ost, proof *pi, uint8_t jlmat[][ost->n][256*N/8], const witness *iwt) {
+int project(statement *ost, proof *pi, uint8_t jlmat[][ost->n][256*N/8], const witness *iwt) {
   const size_t r = iwt->r;
   const size_t *n = iwt->n;
 
   size_t i,j,k,rep;
   uint64_t normsq = 0, test;
-  const uint64_t hardbound = MIN(((uint64_t)1 << 32)/8,(((uint64_t)1 << LOGQ) - QOFF)/125);
   __attribute__((aligned(16)))
   uint8_t hashbuf[16+1024];
   aes128ctr_ctx aesctx;
 
   for(i=0;i<r;i++)
     normsq += iwt->normsq[i];
-  if(normsq > hardbound*hardbound)
+  if(normsq > JLMAXNORMSQ) {
     fprintf(stderr,"ERROR: Total witness norm too big for JL Projection\n");
-  test = next2power(sqrt(8*normsq));
+    return 1;
+  }
+  test = next2power(4*sqrt(normsq));
   normsq *= 256;
   shake128(hashbuf,32,ost->h,16);
   aes128ctr_init(&aesctx,&hashbuf[16],0);
   pi->jlnonce = 0;
   do {
     aes128ctr_select(&aesctx,++pi->jlnonce);
-    memset(pi->p,0,1024);
+    memset(pi->p,0,256*sizeof(int32_t));
     j = k = 0;
     for(i=0;i<r;i++) {
       aes128ctr_squeezeblocks(jlmat[j][k],n[i]*256*N/8/AES128CTR_BLOCKBYTES,&aesctx);
@@ -654,24 +672,26 @@ void project(statement *ost, proof *pi, uint8_t jlmat[][ost->n][256*N/8], const 
       }
     }
     rep = 0;
-    for(i=0;i<256;i++)
+    for(i=0;i<256;i++)  // TODO: vectorize
       if(labs(pi->p[i]) >= test)
         rep = 1;
   } while(rep || jlproj_normsq(pi->p) > normsq);
 
   memcpy(&hashbuf[16],pi->p,1024);
   shake128(ost->h,16,hashbuf,16+1024);
+  return 0;
 }
 
 int reduce_project(statement *ost, uint8_t jlmat[][ost->n][256*N/8], const proof *pi, size_t r, uint64_t betasq) {
   size_t i,j,k;
-  const uint64_t hardbound = MIN(((uint64_t)1 << 32)/8,(((uint64_t)1 << LOGQ) - QOFF)/125);
   __attribute__((aligned(16)))
   uint8_t hashbuf[16+1024];
   aes128ctr_ctx aesctx;
 
-  if(jlproj_normsq(pi->p) > 256*MIN(hardbound*hardbound,betasq))
+  if(jlproj_normsq(pi->p) > 256*MIN(JLMAXNORMSQ,betasq)) {
+    fprintf(stderr,"ERROR in reduce_project(): Witness projection longer than bound\n");
     return 1;
+  }
 
   shake128(hashbuf,32,ost->h,16);
   aes128ctr_init(&aesctx,&hashbuf[16],pi->jlnonce);
@@ -696,14 +716,14 @@ int reduce_project(statement *ost, uint8_t jlmat[][ost->n][256*N/8], const proof
 void collaps_jlproj_raw(constraint *cnst, size_t r, size_t n, uint8_t h[16], const int32_t p[256],
                        const uint8_t jlmat[r][n][256*N/8])
 {
-  __attribute__((aligned(16)))
-  uint8_t hashbuf[16+QBYTES*256+16];  // additional 16 bytes because of vector loads
+  __attribute__((aligned(32)))
+  uint8_t hashbuf[32+QBYTES*256+24];  // additional 24 bytes because of vector loads
   int64_t x;
 
   shake128(hashbuf,sizeof(hashbuf),h,16);
   memcpy(h,hashbuf,16);
-  polxvec_jlproj_collapsmat(cnst->phi,**jlmat,r*n,&hashbuf[16]);
-  x = jlproj_collapsproj(p,&hashbuf[16]);
+  polxvec_jlproj_collapsmat(cnst->phi,**jlmat,r*n,&hashbuf[32]);
+  x = jlproj_collapsproj(p,&hashbuf[32]);
   polx_monomial(cnst->b,x,0);
 }
 
@@ -736,7 +756,7 @@ void lift_aggregate_zqcnst(statement *ost, proof *pi, size_t i, constraint *cnst
   }
 }
 
-int reduce_lift_aggregate_zqcnst(statement *ost, const proof *pi, size_t i, const constraint *cnst) {
+void reduce_lift_aggregate_zqcnst(statement *ost, const proof *pi, size_t i, const constraint *cnst) {
   __attribute__((aligned(16)))
   uint8_t hashbuf[16+N*QBYTES];
   polz b[1];
@@ -764,8 +784,6 @@ int reduce_lift_aggregate_zqcnst(statement *ost, const proof *pi, size_t i, cons
     polx_mul_add(ost->cnst->b,alpha,cnst->b);
     sparsemat_polx_mul_add(ost->cnst->a,alpha,cnst->a);
   }
-
-  return 0;
 }
 
 static void aggregate(statement *ost, const proof *pi, const statement *ist) {
@@ -1028,10 +1046,14 @@ int reduce_amortize(statement *ost, const proof *pi) {
   polx (*phi)[n] = (polx(*)[n])ost->cnst->phi;
 
   ost->betasq = pi->normsq;
-  if(!sis_secure(cpp->kappa,6*T*SLACK*ldexp(1,(cpp->f-1)*cpp->b)*sqrt(ost->betasq)))
+  if(!sis_secure(cpp->kappa,6*T*SLACK*ldexp(1,(cpp->f-1)*cpp->b)*sqrt(ost->betasq))) {
+    fprintf(stderr,"ERROR in reduce_amortize(): Inner commitments not secure\n");
     return 1;
-  if(!pi->tail && !sis_secure(cpp->kappa1,2*SLACK*sqrt(ost->betasq)))
+  }
+  if(!pi->tail && !sis_secure(cpp->kappa1,2*SLACK*sqrt(ost->betasq))) {
+    fprintf(stderr,"ERROR in reduce_amortize(): Outer commitments not secure\n");
     return 2;
+  }
 
   /* second outer commitment resp garbage terms */
   polzvec_topolxvec(ost->u2,pi->u2,cpp->u2len);
@@ -1065,35 +1087,54 @@ int reduce_amortize(statement *ost, const proof *pi) {
   return 0;
 }
 
-void prove(statement *ost, witness *owt, proof *pi, const statement *ist, const witness *iwt, int tail) {
+int prove(statement *ost, witness *owt, proof *pi, const statement *ist, const witness *iwt, int tail) {
+  int ret;
   size_t i;
-  constraint cnst[1];
+  constraint cnst[1] = {};
+  void *buf = NULL;
 
-  init_proof(pi,iwt,ist->cpp->fg != 0,tail);
+  ret = init_proof(pi,iwt,ist->cpp->fg != 0,tail);
+  if(ret) // commitments not secure (1/2)
+    return ret;
   init_statement(ost,pi,ist->h);
   init_witness(owt,ost);
   printf("Predicted witness norm: %.2f\n\n",sqrt(pi->normsq));
 
-  polx (*sx)[ost->n] = _aligned_alloc(64,ost->r*ost->n*sizeof(polx));
-  commit(ost,owt,pi,sx,iwt);
+  {
+    buf = _aligned_alloc(64,ost->r*ost->n*(sizeof(polx)+256*N/8));
+    polx (*sx)[ost->n] = (polx(*)[ost->n])buf;
+    uint8_t (*jlmat)[ost->n][256*N/8] = (uint8_t(*)[ost->n][256*N/8])sx[ost->r];
+    commit(ost,owt,pi,sx,iwt);
+    ret = project(ost,pi,jlmat,iwt);
+    if(ret) {
+      ret += 10;
+      goto err;
+    }
 
-  uint8_t (*jlmat)[ost->n][256*N/8] = _aligned_alloc(64,ost->r*ost->n*256*N/8);
-  project(ost,pi,jlmat,iwt);
+    init_constraint_raw(cnst,ost->r,ost->n,1,0);
+    for(i=0;i<LIFTS;i++) {
+      collaps_jlproj(cnst,ost,pi,jlmat);
+      lift_aggregate_zqcnst(ost,pi,i,cnst,sx);
+    }
+    free_constraint(cnst);
 
-  init_constraint_raw(cnst,ost->r,ost->n,1,0);
-  for(i=0;i<LIFTS;i++) {
-    collaps_jlproj(cnst,ost,pi,jlmat);
-    lift_aggregate_zqcnst(ost,pi,i,cnst,sx);
+    aggregate(ost,pi,ist);
+    amortize(ost,owt,pi,sx);
+    free(buf);
+    buf = NULL;
   }
-  free(jlmat);
-  free_constraint(cnst);
-
-  aggregate(ost,pi,ist);
-  amortize(ost,owt,pi,sx);
-  free(sx);
 
   polx_refresh(ost->cnst->b);
   polxvec_refresh(ost->cnst->phi,ost->n);
+  return 0;
+
+err:
+  free_proof(pi);
+  free_statement(ost);
+  free_witness(owt);
+  free(buf);
+  free_constraint(cnst);
+  return ret;
 }
 
 int reduce(statement *ost, const proof *pi, const statement *ist) {
@@ -1108,15 +1149,11 @@ int reduce(statement *ost, const proof *pi, const statement *ist) {
 
   reduce_commit(ost,pi);
   ret = reduce_project(ost,jlmat,pi,pi->r,ist->betasq);
-  if(ret) goto err;
+  if(ret) goto err;  // projection too long
 
   for(i=0;i<LIFTS;i++) {
     collaps_jlproj(cnst,ost,pi,jlmat);
-    ret = reduce_lift_aggregate_zqcnst(ost,pi,i,cnst);
-    if(ret) {
-      ret = 2 + i;
-      goto err;
-    }
+    reduce_lift_aggregate_zqcnst(ost,pi,i,cnst);
   }
   free_constraint(cnst);
   free(jlmat);
@@ -1124,8 +1161,8 @@ int reduce(statement *ost, const proof *pi, const statement *ist) {
 
   aggregate(ost,pi,ist);
   ret = reduce_amortize(ost,pi);
-  if(ret) {
-    ret = 8;
+  if(ret) {  // commitments not secure (1/2)
+    ret += 10;
     goto err;
   }
 
@@ -1164,6 +1201,7 @@ int verify(const statement *st, const witness *wt) {
   for(i=0;i<wt->r;i++)
     normsq += polyvec_sprodz(wt->s[i],wt->s[i],wt->n[i]);
   if(normsq > st->betasq) {
+    fprintf(stderr,"ERROR in verify(): Total witness norm bigger than bound\n");
     ret = 1;
     goto end;
   }
@@ -1181,6 +1219,7 @@ int verify(const statement *st, const witness *wt) {
     polxvec_mul_extension(tmp1,&comkey[j],&v[g],h-g,cpp->kappa1,1);
     polxvec_sub(tmp0,tmp0,tmp1,cpp->kappa1);
     if(!polxvec_iszero(tmp0,cpp->kappa1)) {
+      fprintf(stderr,"ERROR in verify(): First outer commitment opening wrong\n");
       ret = 2;
       goto end;
     }
@@ -1190,6 +1229,7 @@ int verify(const statement *st, const witness *wt) {
     polxvec_mul_extension(tmp0,comkey,&v[h],m-h,cpp->kappa1,1);
     polxvec_sub(tmp0,tmp0,st->u2,cpp->kappa1);
     if(!polxvec_iszero(tmp0,cpp->kappa1)) {
+      fprintf(stderr,"ERROR in verify(): Second outer commitment opening wrong\n");
       ret = 3;
       goto end;
     }
@@ -1218,6 +1258,7 @@ int verify(const statement *st, const witness *wt) {
   polxvec_mul_extension(tmp0,comkey,z,n,cpp->kappa,1);
   polxvec_sub(tmp0,tmp0,&v[t],cpp->kappa);
   if(!polxvec_iszero(tmp0,cpp->kappa)) {
+    fprintf(stderr,"ERROR in verify(): Amortized (inner commitment) opening wrong\n");
     ret = 4;
     goto end;
   }
@@ -1234,6 +1275,7 @@ int verify(const statement *st, const witness *wt) {
     polx_mul_add(tmp0,&st->cnst->a->coeffs[i],&v[g+j]);
   }
   if(!polxvec_iszero(tmp0,1)) {
+    fprintf(stderr,"ERROR in verify(): Aggregated dot-product constraint doesn't hold\n");
     ret = 5;
     goto end;
   }
@@ -1252,6 +1294,7 @@ int verify(const statement *st, const witness *wt) {
     polxvec_sprod(tmp0,z,z,n);
     polx_sub(tmp0,tmp0,&v[g]);
     if(!polx_iszero(tmp0)) {
+      fprintf(stderr,"ERROR in verify(): Quadratic garbage polynomials wrong\n");
       ret = 6;
       goto end;
     }
@@ -1278,6 +1321,7 @@ int verify(const statement *st, const witness *wt) {
   polxvec_sprod(tmp0,st->cnst->phi,z,n);
   polx_sub(tmp0,tmp0,&v[h]);
   if(!polxvec_iszero(tmp0,1)) {
+    fprintf(stderr,"ERROR in verify(): Linear garbage polynomials wrong\n");
     ret = 7;
     goto end;
   }

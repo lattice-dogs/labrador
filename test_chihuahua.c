@@ -84,17 +84,21 @@ static int test_twolayer() {
   print_prncplstmnt_pp(&st0);
   ret = principle_verify(&st0,&wt0);
   if(ret) {
-    fprintf(stderr,"ERROR: verification of linear failed: %d\n",ret);
+    fprintf(stderr,"ERROR: Verification of prepare_linear failed: %d\n",ret);
     goto end;
   }
 
-  principle_prove(&st1,&wt1,&pi0,&st0,&wt0,0);
+  ret = principle_prove(&st1,&wt1,&pi0,&st0,&wt0,0);
+  if(ret) {
+    fprintf(stderr,"ERROR: Chihuahua proof failed: %d\n",ret);
+    goto end;
+  }
   free_witness(&wt0);
   size += print_proof_pp(&pi0);
   print_statement_pp(&st1);
   ret = verify(&st1,&wt1);
   if(ret) {
-    fprintf(stderr,"ERROR: verification of Chihuahua failed: %d\n",ret);
+    fprintf(stderr,"ERROR: Chihuahua verification failed: %d\n",ret);
     goto end;
   }
 
@@ -102,22 +106,26 @@ static int test_twolayer() {
   ret = principle_reduce(&st1,&pi0,&st0);
   free_prncplstmnt(&st0);
   if(ret) {
-    fprintf(stderr,"ERROR: principle_reduce failed: %d\n",ret);
+    fprintf(stderr,"ERROR: Chihuahua reduction failed: %d\n",ret);
     goto end;
   }
   ret = verify(&st1,&wt1);
   if(ret) {
-    fprintf(stderr,"ERROR: verification of principle_reduce failed: %d\n",ret);
+    fprintf(stderr,"ERROR: Verification of chihuahua reduction failed: %d\n",ret);
     goto end;
   }
 
-  prove(&st2,&wt2,&pi1,&st1,&wt1,0);
+  ret = prove(&st2,&wt2,&pi1,&st1,&wt1,0);
+  if(ret) {
+    fprintf(stderr,"ERROR: Labrador proof failed: %d\n",ret);
+    goto end;
+  }
   free_witness(&wt1);
   size += print_proof_pp(&pi1);
   print_statement_pp(&st2);
   ret = verify(&st2,&wt2);
   if(ret) {
-    fprintf(stderr,"ERROR: verification of Labrador failed: %d\n",ret);
+    fprintf(stderr,"ERROR: Labrador verification failed: %d\n",ret);
     goto end;
   }
 
@@ -125,12 +133,12 @@ static int test_twolayer() {
   ret = reduce(&st2,&pi1,&st1);
   free_statement(&st1);
   if(ret) {
-    fprintf(stderr,"ERROR: reduce failed: %d\n",ret);
+    fprintf(stderr,"ERROR: Labrador reduction failed: %d\n",ret);
     goto end;
   }
   ret = verify(&st2,&wt2);
   if(ret) {
-    fprintf(stderr,"ERROR: verification of reduce failed: %d\n",ret);
+    fprintf(stderr,"ERROR: Verification of Labrador reduction failed: %d\n",ret);
     goto end;
   }
 
@@ -162,14 +170,20 @@ static int test_pack() {
   print_prncplstmnt_pp(&st);
   ret = principle_verify(&st,&wt);
   if(ret) {
-    fprintf(stderr,"ERROR: verification of linear failed: %d\n",ret);
+    fprintf(stderr,"ERROR: Verification of prepare_linear failed: %d\n",ret);
     goto end;
   }
 
-  composite_prove_principle(&p,&st,&wt);;
+  ret = composite_prove_principle(&p,&st,&wt);
+  if(ret) {
+    fprintf(stderr,"ERROR: Chihuahua composite proof failed: %d\n",ret);
+    goto end;
+  }
   ret = composite_verify_principle(&p,&st);
-  if(ret)
-    fprintf(stderr,"ERROR: verify_composite_principle failed: %d\n",ret);
+  if(ret) {
+    fprintf(stderr,"ERROR: Chihuahua composite verifaction failed: %d\n",ret);
+    goto end;
+  }
 
 end:
   free_prncplstmnt(&st);

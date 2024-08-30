@@ -134,51 +134,26 @@ static void zz_add(zz *r, const zz *a, const zz *b) {
   size_t i;
   int16_t c;
 
-  r->limbs[L-1] = a->limbs[L-1] + b->limbs[L-1];
-  c  = r->limbs[L-1] >> (LOGQ-14*(L-1));
-  c *= QOFF;
-  r->limbs[L-1] &= (1 << (LOGQ-14*(L-1))) - 1;
+  c = 0;
   for(i=0;i<L-1;i++) {
     r->limbs[i] = a->limbs[i] + b->limbs[i] + c;
     c = r->limbs[i] >> 14;
     r->limbs[i] &= 0x3FFF;
   }
-  r->limbs[L-1] += c;
+  r->limbs[L-1] = a->limbs[L-1] + b->limbs[L-1] + c;
 }
 
-static void zz_mul(zz *r, const zz *a, const zz *b) {
-  size_t i,j;
-  int64_t c = 0;
+static void zz_sub(zz *r, const zz *a, const zz *b) {
+  size_t i;
+  int16_t c;
 
-  for(i=0;i<L;i++)
-    r->limbs[i] = 0;
-
-  for(i=0;i<L;i++) {
-    for(j=0;j<L-1-i;j++) {
-      c += r->limbs[i+j] + (int64_t)a->limbs[i]*b->limbs[j];
-      r->limbs[i+j] = c & 0x3FFF;
-      c >>= 14;
-    }
-    c += r->limbs[L-1] + (int64_t)a->limbs[i]*b->limbs[L-1-i];
-    r->limbs[L-1] = c & ((1 << (LOGQ-14*(L-1))) - 1);
-    c >>= LOGQ-14*(L-1);
-    c *= QOFF;
-    for(j=L-i;j<L;j++) {
-      c += r->limbs[i+j-L] + ((int64_t)a->limbs[i]*b->limbs[j] << (14*L-LOGQ))*QOFF;
-      r->limbs[i+j-L] = c & 0x3FFF;
-      c >>= 14;
-    }
-  }
-  c += r->limbs[L-1];
-  r->limbs[L-1] = c & ((1 << (LOGQ-14*(L-1))) - 1);
-  c >>= LOGQ-14*(L-1);
-  c *= QOFF;
+  c = 0;
   for(i=0;i<L-1;i++) {
-    c += r->limbs[i];
-    r->limbs[i] = c & 0x3FFF;
-    c >>= 14;
+    r->limbs[i] = a->limbs[i] - b->limbs[i] + c;
+    c = r->limbs[i] >> 14;
+    r->limbs[i] &= 0x3FFF;
   }
-  r->limbs[L-1] += c;
+  r->limbs[L-1] = a->limbs[L-1] - b->limbs[L-1] + c;
 }
 
 __attribute__((aligned(64)))

@@ -40,7 +40,7 @@ void free_polcomprf(polcomprf *pi);
 void print_polcomctx_pp(const polcomctx *ctx);
 double print_polcomprf_pp(const polcomprf *pi);
 
-void polcom_commit(polcomctx *ctx, const polz *s, size_t len);
+int polcom_commit(polcomctx *ctx, const polz *s, size_t len);
 int64_t polzvec_eval(const polz *a, size_t len, int64_t x);
 void polcom_eval(witness *wt, polcomprf *pi, const polcomctx *ctx, int64_t x, int64_t y);
 int polcom_reduce(prncplstmnt *st, const polcomprf *pi);

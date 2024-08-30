@@ -9,8 +9,6 @@
 #include "poly.h"
 #include "polz.h"
 
-#define Q ((1LL << LOGQ)-QOFF)
-
 int main(void) {
   size_t i;
   int64_t c;
@@ -41,11 +39,15 @@ int main(void) {
 
   polxvec_jlproj_collapsmat(&r,mat,1,buf);
   polx_poly_mul(&r,&r,&s);
-  polx_getcoeff(&y,&r,0);
+  polx_getcoeff(&x,&r,0);
+  if(!zz_less_than(&x,&modulus.q))
+    zz_sub(&x,&x,&modulus.q);
 
   c = jlproj_collapsproj(p,buf);
-  if(c > Q/2) c -= Q;
-  zz_fromint64(&x,c);
+  zz_fromint64(&y,c);
+  if(!zz_less_than(&y,&modulus.q))
+    zz_sub(&y,&y,&modulus.q);
+
   if(!zz_equal(&x,&y)) {
     fprintf(stderr,"ERROR: Constant coeff doesn't match\n");
     return 1;
