@@ -19,8 +19,6 @@
 size_t comkey_len = 0;
 polx *comkey = NULL;
 
-#define TMPF 4
-
 static size_t triangularidx(size_t i,size_t j,size_t r) {
   if(i>j) {  // swap
     j ^= i;
@@ -93,7 +91,7 @@ int init_proof(proof *pi, const witness *wt, int quadratic, int tail) {
       normsq[i] = wt->normsq[i];
       normsq[wt->r+1+i] = (TAU1+4*TAU2)*wt->normsq[i];
     }
-    pi->n[wt->r] = TMPF*wt->r;  // Zq to Rq liftings
+    pi->n[wt->r] = (LOGQ+9)/10*wt->r;  // Zq to Rq liftings
     normsq[wt->r] = ldexp(1,20)/12*pi->n[wt->r]*N;
 
     for(i=0;i<pi->r;i++)
@@ -673,7 +671,7 @@ int project(statement *ost, proof *pi, uint8_t jlmat[][ost->n][256*N/8], const w
     }
     rep = 0;
     for(i=0;i<256;i++)  // TODO: vectorize
-      if(labs(pi->p[i]) >= test)
+      if((uint64_t)labs(pi->p[i]) >= test)
         rep = 1;
   } while(rep || jlproj_normsq(pi->p) > normsq);
 

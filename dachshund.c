@@ -14,7 +14,8 @@
 #include "chihuahua.h"
 #include "dachshund.h"
 
-#define TMPF 4
+#define BL 10
+#define FL ((LOGQ+9)/BL)
 
 int init_smplstmnt_raw(smplstmnt *st, size_t r, const size_t n[r], const uint64_t betasq[r], size_t k) {
   size_t i;
@@ -252,11 +253,11 @@ static void simple_commit(statement *ost, witness *owt, proof *pi, commitment *c
     polz_frompolx(tmp,&sx[s1][i]);
     polz_setcoeff_fromint64(tmp,0,0);
     polz_center(tmp);
-    polz_decompose_topolx(&sx[s1][i],tmp,r,TMPF,10);
+    polz_decompose_topolx(&sx[s1][i],tmp,r,FL,BL);
   }
 
   polxvec_setzero(&sx[s0][k],(s1-s0)*ost->n - k);
-  polxvec_setzero(&sx[s1][TMPF*r],(s2-s1)*ost->n - TMPF*r);
+  polxvec_setzero(&sx[s1][FL*r],(s2-s1)*ost->n - FL*r);
   polxvec_setzero(&sx[s2][k],(s3-s2)*ost->n - k);
 
   polxvec_setzero(ost->u1,com->kappa1);
@@ -363,10 +364,10 @@ static void simple_collaps(constraint *cnst, statement *ost,
       s |= (int64_t)hashbuf[32+i*QBYTES+j] << 8*j;
     s &= ((int64_t)1 << LOGQ) - 1;
 
-    for(j=0;j<TMPF;j++) {
+    for(j=0;j<FL;j++) {
       polx_monomial(tmp,s,0);
       polx_add(&phi[s1][j*r+i],&phi[s1][j*r+i],tmp);
-      s = cmodq(s << 10);
+      s = cmodq(s << BL);
     }
   }
 }
@@ -413,8 +414,8 @@ static void simple_aggregate(statement *ost, const proof *pi, const commitment *
     }
 
     polx_sub(&phi[s1][i],&phi[s1][i],&com->alpha[i]);
-    for(j=1;j<TMPF;j++)
-      polx_scale_add(&phi[s1][j*r+i],&com->alpha[i],-(int64_t)(1 << 10*j));
+    for(j=1;j<FL;j++)
+      polx_scale_add(&phi[s1][j*r+i],&com->alpha[i],-(int64_t)(1 << BL*j));
   }
 }
 

@@ -251,6 +251,7 @@ static void vec_scalemodq(int64_t r[N], const int64_t a[N], int64_t s) {
 */
 }
 
+// TODO: Horner
 int64_t polzvec_eval(const polz *a, size_t len, int64_t x) {
   size_t i,j,k;
   int64_t t,xx,yy;

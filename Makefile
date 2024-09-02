@@ -1,5 +1,5 @@
 CC ?= /usr/bin/cc
-CFLAGS += -std=c18 -Wall -Wextra -Wmissing-prototypes -Wredundant-decls \
+CFLAGS += -std=c2x -Wall -Wextra -Wmissing-prototypes -Wredundant-decls \
   -Wshadow -Wpointer-arith -Wno-unused-function -flto=auto \
   -fwrapv -march=native -mtune=native -O3
 RM = /bin/rm

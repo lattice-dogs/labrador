@@ -31,9 +31,6 @@ static int composite_prove(composite *p, statement *tst, witness *twt, double *t
     p->pi[p->l] = _malloc(sizeof(proof));
     ret = prove(&tst[i^1],&twt[i^1],p->pi[p->l],&tst[i],&twt[i],0);
     if(ret) return ret;
-
-    if(verify(&tst[i^1],&twt[i^1])) abort();
-
     pisize = print_proof_pp(p->pi[p->l]);
     print_statement_pp(&tst[i^1]);
     twtsize[i^1] = print_witness_pp(&twt[i^1]);

@@ -26,7 +26,7 @@ void poly_jlproj_add(int32_t out[256], const poly *in, const uint8_t mat[256*N/8
   const __m512i stencil1 = _mm512_set1_epi8(0x11);
   const __m512i stencil2 = _mm512_set1_epi8(0x22);
   const __m512i stencil4 = _mm512_set1_epi8(0x44);
-  const __m512i stencil8 = _mm512_set1_epi8(0x88);
+  const __m512i stencil8 = _mm512_set1_epi8((char)0x88);
   const __m512i vpermi2bidx = _mm512_set_epi8(95,87,79,71,
                                               94,86,78,70,
                                               93,85,77,69,
