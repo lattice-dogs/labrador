@@ -15,7 +15,7 @@
 #include "dachshund.h"
 
 #define BL 10
-#define FL ((LOGQ+9)/BL)
+#define FL ((LOGQ+BL/2)/BL)
 
 int init_smplstmnt_raw(smplstmnt *st, size_t r, const size_t n[r], const uint64_t betasq[r], size_t k) {
   size_t i;
@@ -197,12 +197,13 @@ static void init_gadget(polx *gdgt) {
   size_t i;
   int64_t coeffs[N];
 
-  for(i=0;i<LOGQ-1;i++)  // Maximum betasq = 2^(LOGQ-1)-1
-    coeffs[i] = (int64_t)1 << i;
+  /* sigmam1 */
+  coeffs[0] = 1;
+  for(i=1;i<LOGQ-1;i++)  // Maximum betasq = 2^(LOGQ-1)-1
+    coeffs[N-i] = -(int64_t)1 << i;
   while(i<N)
-    coeffs[i++] = 0;
+    coeffs[N-i++] = 0;
   polxvec_fromint64vec(gdgt,1,1,coeffs);
-  polx_sigmam1(gdgt,gdgt);
 }
 
 static void simple_commit(statement *ost, witness *owt, proof *pi, commitment *com, polx sx[ost->r][ost->n],

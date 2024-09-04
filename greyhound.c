@@ -251,25 +251,23 @@ static void vec_scalemodq(int64_t r[N], const int64_t a[N], int64_t s) {
 */
 }
 
-// TODO: Horner
 int64_t polzvec_eval(const polz *a, size_t len, int64_t x) {
   size_t i,j,k;
-  int64_t t,xx,yy;
+  int64_t t,y;
 
-  xx = 1;
-  yy = 0;
-  for(i=0;i<len;i++) {
-    for(j=0;j<N;j++) {
+  y = 0;
+  for(i=len;i>0;i--) {
+    for(j=N;j>0;j--) {
       t = 0;
       for(k=0;k<L;k++)
-        t += (int64_t)a[i].limbs[k].c[j] << 14*k;
-      yy += mulmodq(t,xx);
-      xx = mulmodq(xx,x);
+        t += (int64_t)a[i-1].limbs[k].c[j-1] << 14*k;
+      y  = mulmodq(y,x);
+      y += t;
     }
   }
 
-  yy = mulmodq(1,yy);
-  return yy;
+  y = mulmodq(y,1);
+  return y;
 }
 
 void polcom_eval(witness *wt, polcomprf *pi, const polcomctx *ctx, int64_t x, int64_t y) {
@@ -385,8 +383,8 @@ int polcom_reduce(prncplstmnt *st, const polcomprf *pi) {
   int64_t y = pi->y;
   int64_t s;
   int64_t xvec[N], xvec2[N];
-  __attribute__((aligned(16)))
   size_t stn[4], len;
+  __attribute__((aligned(16)))
   uint8_t hashbuf[24+cpp->kappa1*N*QBYTES];
   polx *buf;
 

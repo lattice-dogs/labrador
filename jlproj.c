@@ -418,7 +418,20 @@ static void expand_challenge(int64_t alpha[256], const uint8_t buf[256*QBYTES]) 
   __m512i f;
 
 #if QBYTES == 3
-
+  const __mmask64 mask = _cvtu64_mask64(0x0B0B0B0B0B0B0B0Bull);
+  const __m512i vpermbidx = _mm512_set_epi8(-1,-1,-1,-1,-1,23,22,21,
+                                            -1,-1,-1,-1,-1,20,19,18,
+                                            -1,-1,-1,-1,-1,17,16,15,
+                                            -1,-1,-1,-1,-1,14,13,12,
+                                            -1,-1,-1,-1,-1,11,10, 9,
+                                            -1,-1,-1,-1,-1, 8, 7, 6,
+                                            -1,-1,-1,-1,-1, 5, 4, 3,
+                                            -1,-1,-1,-1,-1, 2, 1, 0);
+  for(i=0;i<256/8;i++) {
+    f = _mm512_loadu_si512((__m512i*)&buf[24*i]);
+    f = _mm512_maskz_permutexvar_epi8(mask,vpermbidx,f);
+    _mm512_store_si512((__m512i*)&alpha[8*i],f);
+  }
 #elif QBYTES == 4
   for(i=0;i<256/8;i++) {
     f = _mm512_cvtepu32_epi64(_mm256_load_si256((__m256i*)&buf[32*i]));
@@ -436,6 +449,21 @@ static void expand_challenge(int64_t alpha[256], const uint8_t buf[256*QBYTES]) 
                                             -1,-1,-1, 4, 3, 2, 1, 0);
   for(i=0;i<256/8;i++) {
     f = _mm512_loadu_si512((__m512i*)&buf[40*i]);
+    f = _mm512_maskz_permutexvar_epi8(mask,vpermbidx,f);
+    _mm512_store_si512((__m512i*)&alpha[8*i],f);
+  }
+#elif QBYTES == 6
+  const __mmask64 mask = _cvtu64_mask64(0x3F3F3F3F3F3F3F3Full);
+  const __m512i vpermbidx = _mm512_set_epi8(-1,-1,47,46,45,44,43,42,
+                                            -1,-1,41,40,39,38,37,36,
+                                            -1,-1,35,34,33,32,31,30,
+                                            -1,-1,29,28,27,26,25,24,
+                                            -1,-1,23,22,21,20,19,18,
+                                            -1,-1,17,16,15,14,13,12,
+                                            -1,-1,11,10, 9, 8, 7, 6,
+                                            -1,-1, 5, 4, 3, 2, 1, 0);
+  for(i=0;i<256/8;i++) {
+    f = _mm512_loadu_si512((__m512i*)&buf[48*i]);
     f = _mm512_maskz_permutexvar_epi8(mask,vpermbidx,f);
     _mm512_store_si512((__m512i*)&alpha[8*i],f);
   }
